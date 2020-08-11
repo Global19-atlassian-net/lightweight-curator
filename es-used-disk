@@ -1,0 +1,12 @@
+#!/bin/bash
+
+cd $(dirname "${BASH_SOURCE[0]}")
+
+source env-prep
+
+COLLUMN=$1
+
+for p in $(oc -n ${LOGGING_NS} get pods -o jsonpath={.items[*].metadata.name} -l component=elasticsearch); do
+  oc -n ${LOGGING_NS} exec -c elasticsearch $p -- df -m | grep -E "persistent|Mounted" | awk '{ print $c }' c=$COLLUMN;
+done
+

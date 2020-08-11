@@ -5,6 +5,7 @@ from datetime import timedelta
 from elasticsearch import Elasticsearch
 import json
 import os
+import subprocess
 import sys
 
 # read environment variables
@@ -39,6 +40,50 @@ def get_valid_indices(nameprefix, retention_days, timeformat):
         out.add(string)
     return out
 
+# This function retrieve disk usage data from "df -m" command
+# Collumn as argument:
+# 2 -> 1M-blocks
+# 3 -> Used
+# 5 -> Use%
+def get_disk_usage(collumn):
+
+    raw_data = subprocess.check_output(args=['./es-used-disk', str(collumn)], universal_newlines=True).rstrip('\n').split('\n')
+
+    # Remove name of the selected collumn from the list
+    data = [ x for x in raw_data if (x != '1M-blocks') and (x != 'Use%') and (x != 'Used')]
+
+    disk_total = 0
+    for row in data:
+        if str(collumn) == '2':
+            disk_total = int(row)
+        elif str(collumn) == '5':
+            disk_total = disk_total + int(row[:-1])
+        else:
+            disk_total = disk_total + int(row)
+
+    return disk_total
+
+# This function calculate how many MB we need to delete if indices are above threshold
+def prepare_delete_data():
+
+    # Calculate max allowed usage of disk in MB (80% default)
+    max_allowed = lambda part, whole:float(whole) / 100 * float(part)
+
+    # Calculate how many MB we need to delete if above threshold
+    delete = int(get_disk_usage(3)) - int(max_allowed(80,get_disk_usage(2)))
+
+    if delete > 0:
+        action = True
+        # print("We are above threshold by %d MB!" % delete)
+    elif float(max_allowed(80,get_disk_usage(2))) > float(get_disk_usage(3)):
+        action = False
+        # print("We have enough free space, no need to delete indices.")
+    else:
+        action = False
+        # print("None.")
+    
+    return delete, action
+
 
 def main():
     global index_name_prefix
@@ -66,6 +111,12 @@ def main():
 
     # index name prefixes from space-separated string
     index_name_prefix_list = index_name_prefix.split()
+
+    print(prepare_delete_data())
+
+    # Todo: Error with connection to ES in code below
+    # For debugging purposes exitting code here
+    sys.exit(1)
 
     for index_name_prefix in index_name_prefix_list:
 
@@ -117,3 +168,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
