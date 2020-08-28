@@ -9,11 +9,10 @@ import subprocess
 import sys
 
 # read environment variables
-elasticsearch_host = os.getenv("ELASTICSEARCH_HOST", "elasticsearch:9200")
-retention_days = int(os.getenv("RETENTION_DAYS", "14"))
-index_name_prefix = os.getenv("INDEX_NAME_PREFIX", "fluentd- gslogs-")
+elasticsearch_host = os.getenv("ELASTICSEARCH_HOST", "elasticsearch.openshift-logging.svc.cluster.local:9200")
+retention_days = int(os.getenv("RETENTION_DAYS", "2"))
+index_name_prefix = os.getenv("INDEX_NAME_PREFIX", "infra-")
 index_name_timeformat = os.getenv("INDEX_NAME_TIMEFORMAT", "%Y.%m.%d")
-
 
 def log(level="info", message="", extra=None):
     """
@@ -47,7 +46,7 @@ def get_valid_indices(nameprefix, retention_days, timeformat):
 # 5 -> Use%
 def get_disk_usage(collumn):
 
-    raw_data = subprocess.check_output(args=['./es-used-disk', str(collumn)], universal_newlines=True).rstrip('\n').split('\n')
+    raw_data = subprocess.check_output(args=['./home/es-used-disk', str(collumn)], universal_newlines=True).rstrip('\n').split('\n')
 
     # Remove name of the selected collumn from the list
     data = [ x for x in raw_data if (x != '1M-blocks') and (x != 'Use%') and (x != 'Used')]
@@ -112,11 +111,7 @@ def main():
     # index name prefixes from space-separated string
     index_name_prefix_list = index_name_prefix.split()
 
-    print(prepare_delete_data())
-
-    # Todo: Error with connection to ES in code below
-    # For debugging purposes exitting code here
-    sys.exit(1)
+    # print(prepare_delete_data())
 
     for index_name_prefix in index_name_prefix_list:
 
@@ -134,7 +129,19 @@ def main():
             sys.exit(1)
 
         try:
-            es = Elasticsearch([elasticsearch_host])
+            es = Elasticsearch(                                                                                                        
+                ['elasticsearch.openshift-logging.svc.cluster.local:9200'],                                                
+                # enable SSL                                                                                               
+                use_ssl=True,                                                                                              
+                # verify SSL certificates to authenticare                                                                  
+                verify_certs=True,                                                                                         
+                # path to ca                                                                                               
+                ca_certs='/home/data/ca',                                                                                  
+                # path to key                                                                                              
+                client_key='/home/data/key',                                                                               
+                # path to cert                                                                                             
+                client_cert='/home/data/cert'                                                                              
+            )
         except Exception as e:
             log("error", "Could not connect to elasticsearch", extra={
                 "exception": e
