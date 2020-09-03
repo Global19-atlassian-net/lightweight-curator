@@ -3,6 +3,7 @@
 from datetime import date
 from datetime import timedelta
 from elasticsearch import Elasticsearch
+from hurry.filesize import size
 import json
 import os
 import subprocess
@@ -10,8 +11,9 @@ import sys
 
 # read environment variables
 elasticsearch_host = os.getenv("ELASTICSEARCH_HOST", "elasticsearch.openshift-logging.svc.cluster.local:9200")
+#percentage_threshold = os.getenv("PERCENTAGE_THRESHOLD", "80")
 retention_days = int(os.getenv("RETENTION_DAYS", "2"))
-index_name_prefix = os.getenv("INDEX_NAME_PREFIX", "infra-")
+index_name_prefix = os.getenv("INDEX_NAME_PREFIX", "infra- app- audit-")
 index_name_timeformat = os.getenv("INDEX_NAME_TIMEFORMAT", "%Y.%m.%d")
 
 def log(level="info", message="", extra=None):
@@ -27,9 +29,9 @@ def log(level="info", message="", extra=None):
     print(json.dumps(msg))
 
 
-def get_valid_indices(nameprefix, retention_days, timeformat):
+def prepare_valid_indices_names(nameprefix, retention_days, timeformat):
     """
-    Returns a set of valid index names to keep
+    Returns a set of valid index names to keep. These names are just user-friendly and NOT equal to actual indices names.
     """
     out = set()
     for n in range(retention_days):
@@ -39,50 +41,46 @@ def get_valid_indices(nameprefix, retention_days, timeformat):
         out.add(string)
     return out
 
-# This function retrieve disk usage data from "df -m" command
-# Collumn as argument:
-# 2 -> 1M-blocks
-# 3 -> Used
-# 5 -> Use%
-def get_disk_usage(collumn):
-
-    raw_data = subprocess.check_output(args=['./home/es-used-disk', str(collumn)], universal_newlines=True).rstrip('\n').split('\n')
-
-    # Remove name of the selected collumn from the list
-    data = [ x for x in raw_data if (x != '1M-blocks') and (x != 'Use%') and (x != 'Used')]
-
-    disk_total = 0
-    for row in data:
-        if str(collumn) == '2':
-            disk_total = int(row)
-        elif str(collumn) == '5':
-            disk_total = disk_total + int(row[:-1])
-        else:
-            disk_total = disk_total + int(row)
-
-    return disk_total
-
-# This function calculate how many MB we need to delete if indices are above threshold
-def prepare_delete_data():
-
-    # Calculate max allowed usage of disk in MB (80% default)
-    max_allowed = lambda part, whole:float(whole) / 100 * float(part)
-
-    # Calculate how many MB we need to delete if above threshold
-    delete = int(get_disk_usage(3)) - int(max_allowed(80,get_disk_usage(2)))
-
-    if delete > 0:
-        action = True
-        # print("We are above threshold by %d MB!" % delete)
-    elif float(max_allowed(80,get_disk_usage(2))) > float(get_disk_usage(3)):
-        action = False
-        # print("We have enough free space, no need to delete indices.")
-    else:
-        action = False
-        # print("None.")
+def get_max_allowed_size(es):                                                                                            
+    """                                                                                                                  
+    Returns a integer which is calculated as maximal allowed size. We think of <percentage_value_input> as 100% of our total available storage limit.
+    """                                                                                                                                              
+    i = 0                                                                                                                                            
+    data = es.cluster.client.cat.allocation(h='disk.total', bytes='b')                                                                               
+    for node in data.splitlines():                                                                                       
+        i = i + int(node)                                                                                                                            
+                                                                                                                                                     
+    max_allowed_size = (80 * i) / 100.0 
     
-    return delete, action
+    return max_allowed_size
 
+def get_actionable_indices(es, max_allowed_size):
+    """
+    Returns a list of actionable indices based on percentage size and age.                                                                           
+    """
+    # Prepare dictionary of indices with their size and creation_date values.
+    data = {}
+    for name in es.indices.get_alias(index=index_name_prefix + "*").keys():
+        size = list(es.indices.stats(index=name)['indices'][name]['total']['store'].values())[0]
+        creation_date = int(es.indices.get(index=name)[name]['settings']['index']['creation_date'])
+        data.update({name: {'size': size, 'creation_date': creation_date}})
+
+    # Output are one or more indices which are above the 80% threshold and are supposed to be deleted.                                               
+    max_allowed_size = get_max_allowed_size(es)                                                                                                      
+    print(max_allowed_size)                                                                                                                          
+    to_delete = []                                                                                                                                   
+    i = 0                                                                                                                                            
+    for k, v in sorted(data.items(), key=lambda e: e[1]["creation_date"]):                                                                           
+        for value in sorted(v.items()):                                                                                                              
+            if value[0] == "size":                                                                                                                   
+                if i < max_allowed_size:                                                                                                             
+                    i = i + int(value[1])                                                                                                            
+                else:                                                                                                                                
+                    to_delete.append(k)                                                                                                              
+            else:                                                                                                                                    
+                continue                                                                                                                             
+                                                                                                                                                     
+    return to_delete 
 
 def main():
     global index_name_prefix
@@ -111,11 +109,9 @@ def main():
     # index name prefixes from space-separated string
     index_name_prefix_list = index_name_prefix.split()
 
-    # print(prepare_delete_data())
-
     for index_name_prefix in index_name_prefix_list:
 
-        log("info", "Removing indices with name format '{prefix}{timeformat}' older than {days} days from host '{host}'".format(
+        log("info", "Removing indices with name format '{prefix}{timeformat}' which are above 80% threshold and older than {days} days from host '{host}'".format(
             prefix=index_name_prefix,
             timeformat=index_name_timeformat,
             days=retention_days,
@@ -123,7 +119,7 @@ def main():
         ))
 
         # Create a set of names with index names that should be kept for now
-        valid = get_valid_indices(index_name_prefix, retention_days, index_name_timeformat)
+        valid = prepare_valid_indices_names(index_name_prefix, retention_days, index_name_timeformat)
         if len(valid) == 0:
             log("error", "The current index name settings yield no index names to retain")
             sys.exit(1)
@@ -150,6 +146,17 @@ def main():
 
         searchterm = index_name_prefix + "*"
 
+        # Get content of actionable list.
+        limit = size(get_max_allowed_size(es))
+        for indice in get_actionable_indices(es, get_max_allowed_size(es)):
+            if 1 == 1:
+                log("info", "Removed from actionable list: '{indice}', summed disk usage is '{usage}' and disk limit is '{limit}'.".format(indice, "xyz", limit))
+            else:
+                log("info", "Remains in actionable list: '{indice}', summed disk usage is '{usage}' and disk limit is '{limit}'.".format(indice, "xyz", limit))
+
+        # For development purpose, exitting code bellow.
+        sys.exit(1)
+
         try:
             indices = es.indices.get(searchterm)
         except Exception as e:
@@ -175,4 +182,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
