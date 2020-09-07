@@ -3,7 +3,6 @@
 from datetime import date
 from datetime import timedelta
 from elasticsearch import Elasticsearch
-from hurry.filesize import size
 import json
 import os
 import subprocess
@@ -11,7 +10,7 @@ import sys
 
 # read environment variables
 elasticsearch_host = os.getenv("ELASTICSEARCH_HOST", "elasticsearch.openshift-logging.svc.cluster.local:9200")
-#percentage_threshold = os.getenv("PERCENTAGE_THRESHOLD", "80")
+percentage_threshold = os.getenv("PERCENTAGE_THRESHOLD", 80)
 retention_days = int(os.getenv("RETENTION_DAYS", "2"))
 index_name_prefix = os.getenv("INDEX_NAME_PREFIX", "infra- app- audit-")
 index_name_timeformat = os.getenv("INDEX_NAME_TIMEFORMAT", "%Y.%m.%d")
@@ -28,7 +27,6 @@ def log(level="info", message="", extra=None):
         msg["extra"] = extra
     print(json.dumps(msg))
 
-
 def prepare_valid_indices_names(nameprefix, retention_days, timeformat):
     """
     Returns a set of valid index names to keep. These names are just user-friendly and NOT equal to actual indices names.
@@ -41,55 +39,56 @@ def prepare_valid_indices_names(nameprefix, retention_days, timeformat):
         out.add(string)
     return out
 
-def get_max_allowed_size(es):                                                                                            
-    """                                                                                                                  
+def get_max_allowed_size(es, percentage_threshold):
+    """
     Returns a integer which is calculated as maximal allowed size. We think of <percentage_value_input> as 100% of our total available storage limit.
-    """                                                                                                                                              
-    i = 0                                                                                                                                            
-    data = es.cluster.client.cat.allocation(h='disk.total', bytes='b')                                                                               
-    for node in data.splitlines():                                                                                       
-        i = i + int(node)                                                                                                                            
-                                                                                                                                                     
-    max_allowed_size = (80 * i) / 100.0 
-    
+    """
+    i = 0
+    data = es.cluster.client.cat.allocation(h='disk.total', bytes='b')
+    for node in data.splitlines():
+        i = i + int(node)
+
+    max_allowed_size = (percentage_threshold * i) / 100.0
+
     return max_allowed_size
 
-def get_actionable_indices(es, max_allowed_size):
+def get_actionable_indices(es, max_allowed_size, index_name_prefix_list):
     """
-    Returns a list of actionable indices based on percentage size and age.                                                                           
+    Returns a list of actionable indices based on percentage size and age.
     """
-    # Prepare dictionary of indices with their size and creation_date values.
-    data = {}
-    for name in es.indices.get_alias(index=index_name_prefix + "*").keys():
-        size = list(es.indices.stats(index=name)['indices'][name]['total']['store'].values())[0]
-        creation_date = int(es.indices.get(index=name)[name]['settings']['index']['creation_date'])
-        data.update({name: {'size': size, 'creation_date': creation_date}})
+    i = 0
+    for index_name_prefix in index_name_prefix_list:
+        # Prepare dictionary of indices with their size and creation_date values.
+        data = {}
+        for name in es.indices.get_alias(index=index_name_prefix + "*").keys():
+            size = list(es.indices.stats(index=name)['indices'][name]['total']['store'].values())[0]
+            creation_date = int(es.indices.get(index=name)[name]['settings']['index']['creation_date'])
+            data.update({name: {'size': size, 'creation_date': creation_date}})
 
-    # Output are one or more indices which are above the 80% threshold and are supposed to be deleted.                                               
-    max_allowed_size = get_max_allowed_size(es)                                                                                                      
-    print(max_allowed_size)                                                                                                                          
-    to_delete = []                                                                                                                                   
-    i = 0                                                                                                                                            
-    for k, v in sorted(data.items(), key=lambda e: e[1]["creation_date"]):                                                                           
-        for value in sorted(v.items()):                                                                                                              
-            if value[0] == "size":                                                                                                                   
-                if i < max_allowed_size:                                                                                                             
-                    i = i + int(value[1])                                                                                                            
-                else:                                                                                                                                
-                    to_delete.append(k)                                                                                                              
-            else:                                                                                                                                    
-                continue                                                                                                                             
-                                                                                                                                                     
-    return to_delete 
+        # Output are one or more indices which are above the 80% threshold and are supposed to be deleted.
+        indices_to_delete = []
+        for k, v in sorted(data.items(), key=lambda e: e[1]["creation_date"]):
+            for value in sorted(v.items()):
+                if value[0] == "size":
+                    if i < max_allowed_size:
+                        i = i + int(value[1])
+                        log("info", "Removed from actionable list: '{indice}', summed disk usage is {usage} B and disk limit is {limit} B.".format(indice=k, usage=i, limit=int(max_allowed_size)))
+                    else:
+                        indices_to_delete.append(k)
+                        log("info", "Remains in actionable list: '{indice}', summed disk usage is {usage} B and disk limit is {limit} B.".format(indice=k, usage=value[1], limit=int(max_allowed_size)))
+                else:
+                    continue
+
+    return indices_to_delete
 
 def main():
     global index_name_prefix
     global retention_days
     global index_name_timeformat
     global elasticsearch_host
+    global percentage_threshold
 
     # Initial validation
-
     if retention_days < 1:
         log("error", "Retention period in days is too short (RETENTION_DAYS=%d)" % retention_days)
         sys.exit(1)
@@ -106,16 +105,38 @@ def main():
         log("error", "Elasticsearch host is empty (ELASTICSEARCH_HOST='')")
         sys.exit(1)
 
+    # Create Elasticsearch instance
+    try:
+        es = Elasticsearch(
+            ['elasticsearch.openshift-logging.svc.cluster.local:9200'],
+            # enable SSL
+            use_ssl=True,
+            # verify SSL certificates to authenticare
+            verify_certs=True,
+            # path to ca
+            ca_certs='/home/data/ca',
+            # path to key
+            client_key='/home/data/key',
+            # path to cert
+            client_cert='/home/data/cert'
+        )
+    except Exception as e:
+        log("error", "Could not connect to elasticsearch", extra={
+            "exception": e
+        })
+        sys.exit(1)
+
     # index name prefixes from space-separated string
     index_name_prefix_list = index_name_prefix.split()
 
     for index_name_prefix in index_name_prefix_list:
 
-        log("info", "Removing indices with name format '{prefix}{timeformat}' which are above 80% threshold and older than {days} days from host '{host}'".format(
+        log("info", "Removing indices with name format '{prefix}{timeformat}' which are above {percentage} threshold and older than {days} days from host '{host}'".format(
             prefix=index_name_prefix,
             timeformat=index_name_timeformat,
             days=retention_days,
             host=elasticsearch_host,
+            percentage=percentage_threshold,
         ))
 
         # Create a set of names with index names that should be kept for now
@@ -124,35 +145,10 @@ def main():
             log("error", "The current index name settings yield no index names to retain")
             sys.exit(1)
 
-        try:
-            es = Elasticsearch(                                                                                                        
-                ['elasticsearch.openshift-logging.svc.cluster.local:9200'],                                                
-                # enable SSL                                                                                               
-                use_ssl=True,                                                                                              
-                # verify SSL certificates to authenticare                                                                  
-                verify_certs=True,                                                                                         
-                # path to ca                                                                                               
-                ca_certs='/home/data/ca',                                                                                  
-                # path to key                                                                                              
-                client_key='/home/data/key',                                                                               
-                # path to cert                                                                                             
-                client_cert='/home/data/cert'                                                                              
-            )
-        except Exception as e:
-            log("error", "Could not connect to elasticsearch", extra={
-                "exception": e
-            })
-            sys.exit(1)
-
         searchterm = index_name_prefix + "*"
 
-        # Get content of actionable list.
-        limit = size(get_max_allowed_size(es))
-        for indice in get_actionable_indices(es, get_max_allowed_size(es)):
-            if 1 == 1:
-                log("info", "Removed from actionable list: '{indice}', summed disk usage is '{usage}' and disk limit is '{limit}'.".format(indice, "xyz", limit))
-            else:
-                log("info", "Remains in actionable list: '{indice}', summed disk usage is '{usage}' and disk limit is '{limit}'.".format(indice, "xyz", limit))
+        # Actionable list of indices to be deleted.
+        print(get_actionable_indices(es, get_max_allowed_size(es, int(percentage_threshold)), index_name_prefix_list))
 
         # For development purpose, exitting code bellow.
         sys.exit(1)
