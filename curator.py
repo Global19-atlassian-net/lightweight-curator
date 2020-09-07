@@ -27,17 +27,53 @@ def log(level="info", message="", extra=None):
         msg["extra"] = extra
     print(json.dumps(msg))
 
-def prepare_valid_indices_names(nameprefix, retention_days, timeformat):
+def env_validation(retention_days, index_name_prefix, index_name_timeformat, elasticsearch_host):
     """
-    Returns a set of valid index names to keep. These names are just user-friendly and NOT equal to actual indices names.
+    Initial validation of environment variables.
     """
-    out = set()
-    for n in range(retention_days):
-        today = date.today() - timedelta(days=n)
-        index_name_format = nameprefix + timeformat
-        string = today.strftime(index_name_format)
-        out.add(string)
-    return out
+    if retention_days < 1:
+        log("error", "Retention period in days is too short (RETENTION_DAYS=%d)" % retention_days)
+        sys.exit(1)
+
+    if index_name_prefix == "":
+        log("error", "Index name prefix is empty (INDEX_NAME_PREFIX='')")
+        sys.exit(1)
+
+    if index_name_timeformat == "":
+        log("error", "Index name time format is empty (INDEX_NAME_TIMEFORMAT='')")
+        sys.exit(1)
+
+    if elasticsearch_host == "":
+        log("error", "Elasticsearch host is empty (ELASTICSEARCH_HOST='')")
+        sys.exit(1)
+
+    return
+
+def es_connect(host):
+    """
+    Returns created Elasticsearch instance.
+    """
+    try:
+        es = Elasticsearch(
+            [host],
+            # enable SSL
+            use_ssl=True,
+            # verify SSL certificates to authenticare
+            verify_certs=True,
+            # path to ca
+            ca_certs='/home/data/ca',
+            # path to key
+            client_key='/home/data/key',
+            # path to cert
+            client_cert='/home/data/cert'
+        )
+    except Exception as e:
+        log("error", "Could not connect to elasticsearch", extra={
+            "exception": e
+        })
+        sys.exit(1)
+
+    return es
 
 def get_max_allowed_size(es, percentage_threshold):
     """
@@ -65,7 +101,7 @@ def get_actionable_indices(es, max_allowed_size, index_name_prefix_list):
             creation_date = int(es.indices.get(index=name)[name]['settings']['index']['creation_date'])
             data.update({name: {'size': size, 'creation_date': creation_date}})
 
-        # Output are one or more indices which are above the 80% threshold and are supposed to be deleted.
+        # Output are one or more indices which are above the <percentage_value_input> threshold and are supposed to be deleted.
         indices_to_delete = []
         for k, v in sorted(data.items(), key=lambda e: e[1]["creation_date"]):
             for value in sorted(v.items()):
@@ -81,6 +117,36 @@ def get_actionable_indices(es, max_allowed_size, index_name_prefix_list):
 
     return indices_to_delete
 
+def delete_indices(es, indices_to_delete, index_name_prefix):
+    """
+    Delete actionable indices pasted from get_actionable_indices() function.
+    """
+    # Search existing indices for index_name_prefix.
+    searchterm = index_name_prefix + "*"
+    try:
+        indices = es.indices.get(searchterm)
+    except Exception as e:
+        log("error", "Could not list indices for '%s'" % searchterm, extra={
+            "exception": e
+        })
+        sys.exit(1)
+
+    if len(indices) == 0:
+        log("info", "No indices with prefix '{prefix}' found.".format(prefix=index_name_prefix))
+        sys.exit(1)
+
+    # Delete indices.
+    for indice in indices_to_delete:
+        try:
+            es.indices.delete(index=indice)
+            log("info", "Deleted indice %s" % indice)
+        except Exception as e:
+            log("error", "Error deleting indice '%s'" % indice, extra={
+                "exception": e
+            })
+
+    return
+
 def main():
     global index_name_prefix
     global retention_days
@@ -88,93 +154,35 @@ def main():
     global elasticsearch_host
     global percentage_threshold
 
-    # Initial validation
-    if retention_days < 1:
-        log("error", "Retention period in days is too short (RETENTION_DAYS=%d)" % retention_days)
-        sys.exit(1)
+    # Initial validation of environment variables.
+    env_validation(retention_days, index_name_prefix, index_name_timeformat, elasticsearch_host)
 
-    if index_name_prefix == "":
-        log("error", "Index name prefix is empty (INDEX_NAME_PREFIX='')")
-        sys.exit(1)
-
-    if index_name_timeformat == "":
-        log("error", "Index name time format is empty (INDEX_NAME_TIMEFORMAT='')")
-        sys.exit(1)
-
-    if elasticsearch_host == "":
-        log("error", "Elasticsearch host is empty (ELASTICSEARCH_HOST='')")
-        sys.exit(1)
-
-    # Create Elasticsearch instance
-    try:
-        es = Elasticsearch(
-            ['elasticsearch.openshift-logging.svc.cluster.local:9200'],
-            # enable SSL
-            use_ssl=True,
-            # verify SSL certificates to authenticare
-            verify_certs=True,
-            # path to ca
-            ca_certs='/home/data/ca',
-            # path to key
-            client_key='/home/data/key',
-            # path to cert
-            client_cert='/home/data/cert'
-        )
-    except Exception as e:
-        log("error", "Could not connect to elasticsearch", extra={
-            "exception": e
-        })
-        sys.exit(1)
-
-    # index name prefixes from space-separated string
+    # Index name prefixes from space-separated string.
     index_name_prefix_list = index_name_prefix.split()
 
+    # Iterate through all (infra-*, app-*, audit-*) indices and if needed delete those above <percentage_value_input> threshold.
     for index_name_prefix in index_name_prefix_list:
 
-        log("info", "Removing indices with name format '{prefix}{timeformat}' which are above {percentage} threshold and older than {days} days from host '{host}'".format(
+        log("info", "Removing indices with name format '{prefix}' which are above {percentage} threshold and older than {days} days from host '{host}'".format(
             prefix=index_name_prefix,
             timeformat=index_name_timeformat,
             days=retention_days,
             host=elasticsearch_host,
-            percentage=percentage_threshold,
+            percentage=percentage_threshold
         ))
 
-        # Create a set of names with index names that should be kept for now
-        valid = prepare_valid_indices_names(index_name_prefix, retention_days, index_name_timeformat)
-        if len(valid) == 0:
-            log("error", "The current index name settings yield no index names to retain")
-            sys.exit(1)
+        # Initiate new elasticsearch instance.
+        es = es_connect(elasticsearch_host)
 
-        searchterm = index_name_prefix + "*"
+        # List of actionable indices to be deleted.
+        indices_to_delete = get_actionable_indices(es, get_max_allowed_size(es, int(percentage_threshold)), index_name_prefix_list)
+        print(indices_to_delete)
 
-        # Actionable list of indices to be deleted.
-        print(get_actionable_indices(es, get_max_allowed_size(es, int(percentage_threshold)), index_name_prefix_list))
-
-        # For development purpose, exitting code bellow.
+        # For development purpose, exitting code before indice deletion.
         sys.exit(1)
 
-        try:
-            indices = es.indices.get(searchterm)
-        except Exception as e:
-            log("error", "Could not list indices for '%s'" % searchterm, extra={
-                "exception": e
-            })
-            sys.exit(1)
-
-        if len(indices) == 0:
-            log("info", "No indices found")
-            sys.exit()
-
-        for index in es.indices.get(searchterm):
-            if index not in valid:
-                try:
-                    es.indices.delete(index=index)
-                    log("info", "Deleted index %s" % index)
-                except Exception as e:
-                    log("error", "Error deleting index '%s'" % index, extra={
-                        "exception": e
-                    })
-
+        # Delete indices.
+        delete_indices(es, indices_to_delete, index_name_prefix)
 
 if __name__ == "__main__":
     main()
