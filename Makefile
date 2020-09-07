@@ -1,5 +1,3 @@
-
-
 test:
 	python --version
 	pip install elasticsearch freezegun
