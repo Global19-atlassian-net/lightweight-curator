@@ -1,5 +1,3 @@
-[![Docker Repository on Quay](https://quay.io/repository/tgabriel/lightweight-curator/status "Docker Repository on Quay")](https://quay.io/repository/tgabriel/lightweight-curator)
-
 # Lightweight Curator for Elasticsearch
 
 Simplistic cousin of [Elasticsearch curator](https://github.com/elastic/curator), created for one purpose only:
