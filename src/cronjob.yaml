@@ -1,0 +1,77 @@
+kind: CronJob
+apiVersion: batch/v1beta1
+metadata:
+  name: lightweight-curator
+  namespace: openshift-logging
+  labels:
+    component: lightweight-curator
+    logging-infra: lightweight-curator
+    provider: openshift
+spec:
+  schedule: '30 3 * * *'
+  concurrencyPolicy: Allow
+  suspend: true
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          name: lightweight-curator
+          namespace: openshift-logging
+          labels:
+            component: lightweight-curator
+            logging-infra: lightweight-curator
+            provider: openshift
+        spec:
+          nodeSelector:
+            kubernetes.io/os: linux
+          restartPolicy: OnFailure
+          schedulerName: default-scheduler
+          containers:
+            - name: lightweight-curator
+              image: >-
+                quay.io/tgabriel/lightweight-curator:v1.0
+              env:
+                - name: ELASTICSEARCH_HOST
+                  value: 'elasticsearch.openshift-logging.svc.cluster.local:9200'
+                - name: PERCENTAGE_THRESHOLD
+                  value: '80'
+                - name: RETENTION_DAYS
+                  value: '2'
+                - name: INDEX_NAME_PREFIX
+                  value: 'infra- app- audit-'
+              securityContext:
+                capabilities:
+                  drop:
+                    - KILL
+                    - MKNOD
+                    - SETGID
+                    - SETUID
+                runAsUser: 1000640000
+              resources:
+                limits:
+                  memory: 2Gi
+                requests:
+                  cpu: 200m
+                  memory: 2Gi
+              volumeMounts:
+                - mountPath: /home/data
+                  name: certificates
+              terminationMessagePath: /dev/termination-log
+              terminationMessagePolicy: File
+              imagePullPolicy: IfNotPresent
+          securityContext:
+            fsGroup: 1000640000
+            seLinuxOptions:
+              level: s0:c25,c20
+          serviceAccount: default
+          serviceAccountName: default
+          terminationGracePeriodSeconds: 30
+          volumes:
+            - name: certificates
+              secret:
+                secretName: curator
+                defaultMode: 420
+          dnsPolicy: ClusterFirst
+          enableServiceLinks: true
