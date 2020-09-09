@@ -13,7 +13,6 @@ elasticsearch_host = os.getenv("ELASTICSEARCH_HOST", "elasticsearch.openshift-lo
 percentage_threshold = os.getenv("PERCENTAGE_THRESHOLD", 80)
 retention_days = int(os.getenv("RETENTION_DAYS", "2"))
 index_name_prefix = os.getenv("INDEX_NAME_PREFIX", "infra- app- audit-")
-index_name_timeformat = os.getenv("INDEX_NAME_TIMEFORMAT", "%Y.%m.%d")
 
 def log(level="info", message="", extra=None):
     """
@@ -27,7 +26,7 @@ def log(level="info", message="", extra=None):
         msg["extra"] = extra
     print(json.dumps(msg))
 
-def env_validation(retention_days, index_name_prefix, index_name_timeformat, elasticsearch_host):
+def env_validation(retention_days, index_name_prefix, elasticsearch_host):
     """
     Initial validation of environment variables.
     """
@@ -37,10 +36,6 @@ def env_validation(retention_days, index_name_prefix, index_name_timeformat, ela
 
     if index_name_prefix == "":
         log("error", "Index name prefix is empty (INDEX_NAME_PREFIX='')")
-        sys.exit(1)
-
-    if index_name_timeformat == "":
-        log("error", "Index name time format is empty (INDEX_NAME_TIMEFORMAT='')")
         sys.exit(1)
 
     if elasticsearch_host == "":
@@ -150,12 +145,11 @@ def delete_indices(es, indices_to_delete, index_name_prefix):
 def main():
     global index_name_prefix
     global retention_days
-    global index_name_timeformat
     global elasticsearch_host
     global percentage_threshold
 
     # Initial validation of environment variables.
-    env_validation(retention_days, index_name_prefix, index_name_timeformat, elasticsearch_host)
+    env_validation(retention_days, index_name_prefix, elasticsearch_host)
 
     # Index name prefixes from space-separated string.
     index_name_prefix_list = index_name_prefix.split()
@@ -165,7 +159,6 @@ def main():
 
         log("info", "Removing indices with name format '{prefix}' which are above {percentage} threshold and older than {days} days from host '{host}'".format(
             prefix=index_name_prefix,
-            timeformat=index_name_timeformat,
             days=retention_days,
             host=elasticsearch_host,
             percentage=percentage_threshold
