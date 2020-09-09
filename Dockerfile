@@ -4,8 +4,8 @@ LABEL maintainer="tgabriel@redhat.com"
 LABEL description="Lightweight curator"
 
 ARG OC_VERSION=4.5
-ARG BUILD_DEPS='tar gzip curl python3 tar bash curl'
-ARG RUN_DEPS='ca-certificates gettext'
+ARG BUILD_DEPS='gzip curl tar'
+ARG RUN_DEPS='ca-certificates gettext bash python3'
 
 USER root
 
@@ -25,6 +25,6 @@ RUN python3 -m ensurepip && \
 
 USER nobody
 
-COPY ./curator.py /home/
+COPY ./scripts/curator.py /home/
 
 ENTRYPOINT ["tail", "-f", "/dev/null"]
