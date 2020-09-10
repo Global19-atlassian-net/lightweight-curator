@@ -9,10 +9,10 @@ import subprocess
 import sys
 
 # read environment variables
-elasticsearch_host = os.getenv("ELASTICSEARCH_HOST", "elasticsearch.openshift-logging.svc.cluster.local:9200")
+elasticsearch_host = os.getenv("ELASTICSEARCH_HOST", "elasticsearch.openshift-logging:9200")
 percentage_threshold = os.getenv("PERCENTAGE_THRESHOLD", 80)
 retention_days = int(os.getenv("RETENTION_DAYS", "2"))
-index_name_prefix = os.getenv("INDEX_NAME_PREFIX", "infra- app- audit-")
+index_name_prefixes = os.getenv("INDEX_NAME_PREFIXES", "infra-,app-,audit-")
 
 def log(level="info", message="", extra=None):
     """
@@ -26,16 +26,16 @@ def log(level="info", message="", extra=None):
         msg["extra"] = extra
     print(json.dumps(msg))
 
-def env_validation(retention_days, index_name_prefix, elasticsearch_host):
+def env_validation(retention_days, index_name_prefixes, elasticsearch_host):
     """
     Initial validation of environment variables.
     """
     if retention_days < 1:
-        log("error", "Retention period in days is too short (RETENTION_DAYS=%d)" % retention_days)
+        log("error", "Retention period in days is too short (RETENTION_DAYS='{days}')".format(days=retention_days))
         sys.exit(1)
 
-    if index_name_prefix == "":
-        log("error", "Index name prefix is empty (INDEX_NAME_PREFIX='')")
+    if index_name_prefixes == "":
+        log("error", "Index name prefix is empty (INDEX_NAME_PREFIXES='')")
         sys.exit(1)
 
     if elasticsearch_host == "":
@@ -83,15 +83,15 @@ def get_max_allowed_size(es, percentage_threshold):
 
     return max_allowed_size
 
-def get_actionable_indices(es, max_allowed_size, index_name_prefix_list):
+def get_actionable_indices(es, max_allowed_size, index_name_prefixes_list):
     """
     Returns a list of actionable indices based on percentage size and age.
     """
     i = 0
-    for index_name_prefix in index_name_prefix_list:
+    for index_name_prefixes in index_name_prefixes_list:
         # Prepare dictionary of indices with their size and creation_date values.
         data = {}
-        for name in es.indices.get_alias(index=index_name_prefix + "*").keys():
+        for name in es.indices.get_alias(index=index_name_prefixes + "*").keys():
             size = list(es.indices.stats(index=name)['indices'][name]['total']['store'].values())[0]
             creation_date = int(es.indices.get(index=name)[name]['settings']['index']['creation_date'])
             data.update({name: {'size': size, 'creation_date': creation_date}})
@@ -103,62 +103,64 @@ def get_actionable_indices(es, max_allowed_size, index_name_prefix_list):
                 if value[0] == "size":
                     if i < max_allowed_size:
                         i = i + int(value[1])
-                        log("info", "Removed from actionable list: '{indice}', summed disk usage is {usage} B and disk limit is {limit} B.".format(indice=k, usage=i, limit=int(max_allowed_size)))
+                        log("info", "Removed from actionable list: '{indice}', summed disk usage is {usage} B and disk limit is {limit} B".format(
+                            indice=k, usage=i, limit=int(max_allowed_size)))
                     else:
                         indices_to_delete.append(k)
-                        log("info", "Remains in actionable list: '{indice}', summed disk usage is {usage} B and disk limit is {limit} B.".format(indice=k, usage=value[1], limit=int(max_allowed_size)))
+                        log("info", "Remains in actionable list: '{indice}', summed disk usage is {usage} B and disk limit is {limit} B".format(
+                            indice=k, usage=value[1], limit=int(max_allowed_size)))
                 else:
                     continue
 
     return indices_to_delete
 
-def delete_indices(es, indices_to_delete, index_name_prefix):
+def delete_indices(es, indices_to_delete, index_name_prefixes):
     """
     Delete actionable indices pasted from get_actionable_indices() function.
     """
-    # Search existing indices for index_name_prefix.
-    searchterm = index_name_prefix + "*"
+    # Search existing indices for index_name_prefixes.
+    searchterm = index_name_prefixes + "*"
     try:
         indices = es.indices.get(searchterm)
     except Exception as e:
-        log("error", "Could not list indices for '%s'" % searchterm, extra={
+        log("error", "Could not list indices for '{s}'".format(s=searchterm), extra={
             "exception": e
         })
         sys.exit(1)
 
     if len(indices) == 0:
-        log("info", "No indices with prefix '{prefix}' found.".format(prefix=index_name_prefix))
+        log("info", "No indices with prefix '{prefix}' found".format(prefixes=index_name_prefixes))
         sys.exit(1)
 
     # Delete indices.
     for indice in indices_to_delete:
         try:
             es.indices.delete(index=indice)
-            log("info", "Deleted indice %s" % indice)
+            log("info", "Deleted indice '{s}'".format(s=indice))
         except Exception as e:
-            log("error", "Error deleting indice '%s'" % indice, extra={
+            log("error", "Error deleting indice '{s}'".format(s=indice), extra={
                 "exception": e
             })
 
     return
 
 def main():
-    global index_name_prefix
+    global index_name_prefixes
     global retention_days
     global elasticsearch_host
     global percentage_threshold
 
     # Initial validation of environment variables.
-    env_validation(retention_days, index_name_prefix, elasticsearch_host)
+    env_validation(retention_days, index_name_prefixes, elasticsearch_host)
 
     # Index name prefixes from space-separated string.
-    index_name_prefix_list = index_name_prefix.split()
+    index_name_prefixes_list = index_name_prefixes.split(',')
 
     # Iterate through all (infra-*, app-*, audit-*) indices and if needed delete those above <percentage_value_input> threshold.
-    for index_name_prefix in index_name_prefix_list:
+    for index_name_prefixes in index_name_prefixes_list:
 
         log("info", "Removing indices with name format '{prefix}' which are above {percentage} threshold and older than {days} days from host '{host}'".format(
-            prefix=index_name_prefix,
+            prefix=index_name_prefixes,
             days=retention_days,
             host=elasticsearch_host,
             percentage=percentage_threshold
@@ -168,14 +170,14 @@ def main():
         es = es_connect(elasticsearch_host)
 
         # List of actionable indices to be deleted.
-        indices_to_delete = get_actionable_indices(es, get_max_allowed_size(es, int(percentage_threshold)), index_name_prefix_list)
+        indices_to_delete = get_actionable_indices(es, get_max_allowed_size(es, int(percentage_threshold)), index_name_prefixes_list)
         print(indices_to_delete)
 
         # For development purpose, exitting code before indice deletion.
         sys.exit(1)
 
         # Delete indices.
-        delete_indices(es, indices_to_delete, index_name_prefix)
+        delete_indices(es, indices_to_delete, index_name_prefixes)
 
 if __name__ == "__main__":
     main()
