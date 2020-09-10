@@ -8,7 +8,7 @@ Delete log indices created by fluentd which are above specified **percentage thr
 
 The following environment variables can be used for configuration:
 
-- `ELASTICSEARCH_HOST`: Name of the host that's running elasticsearch (default: `elasticsearch.openshift-logging.svc.cluster.local:9200`)
+- `ELASTICSEARCH_HOST`: Name of the host that's running elasticsearch (default: `elasticsearch.openshift-logging:9200`)
 - `RETENTION_DAYS`: Number of days to keep indices for (default: `14`)
 - `PERCENTAGE_THRESHOLD`: Max allowed size for indices on disk (default: `80`)
 
@@ -20,10 +20,8 @@ The following environment variables can be used for configuration:
 
 Result of running following commands would be newly created *lightweight-curator* pod in *openshift-logging* namespace. From within this pod I would then run curator script.
 
-    $ oc new-app quay.io/tgabriel/lightweight-curator:v1.0 -l name=lightweight-curator -n openshift-logging
+    $ oc apply src/cronjob.yaml -n openshift-logging
 
-    $ oc set volume deployment/lightweight-curator --add --name=certificates --type=secret --secret-name='curator' --mount-path=/home/data -n openshift-logging
-
-    $ oc rsh lightweight-curator-579bb89bdd-sshvn
+    $ oc rsh lightweight-curator-xxxx-yyyy
 
     $ python /home/curator.py
