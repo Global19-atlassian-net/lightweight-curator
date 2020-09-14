@@ -9,7 +9,7 @@ import subprocess
 import sys
 
 # read environment variables
-elasticsearch_host = os.getenv("ELASTICSEARCH_HOST", "elasticsearch.openshift-logging:9200")
+elasticsearch_host = os.getenv("ELASTICSEARCH_HOST", "elasticsearch:9200")
 percentage_threshold = os.getenv("PERCENTAGE_THRESHOLD", 80)
 retention_days = int(os.getenv("RETENTION_DAYS", "2"))
 index_name_prefixes = os.getenv("INDEX_NAME_PREFIXES", "infra-,app-,audit-")
@@ -92,7 +92,7 @@ def get_actionable_indices(es, max_allowed_size, index_name_prefixes_list):
         # Prepare dictionary of indices with their size and creation_date values.
         data = {}
         for name in es.indices.get_alias(index=index_name_prefixes + "*").keys():
-            size = list(es.indices.stats(index=name)['indices'][name]['total']['store'].values())[0]
+            size = int(list(es.indices.stats(index=name)['indices'][name]['total']['store'].values())[0])
             creation_date = int(es.indices.get(index=name)[name]['settings']['index']['creation_date'])
             data.update({name: {'size': size, 'creation_date': creation_date}})
 
@@ -102,7 +102,7 @@ def get_actionable_indices(es, max_allowed_size, index_name_prefixes_list):
             for value in sorted(v.items()):
                 if value[0] == "size":
                     if i < max_allowed_size:
-                        i = i + int(value[1])
+                        i = i + value[1]
                         log("info", "Removed from actionable list: '{indice}', summed disk usage is {usage} B and disk limit is {limit} B".format(
                             indice=k, usage=i, limit=int(max_allowed_size)))
                     else:
