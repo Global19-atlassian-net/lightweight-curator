@@ -25,7 +25,7 @@ def log(level, message="", extra=None):
     """
     if level not in log_types:
         print("Invalid level provided")
-        return
+        sys.exit(1)
 
     msg = {
         "level": level,
@@ -34,6 +34,8 @@ def log(level, message="", extra=None):
     if extra is not None:
         msg["extra"] = extra
     print(json.dumps(msg))
+
+    return
 
 def env_validation(retention_days, index_name_prefixes, elasticsearch_host):
     """
@@ -53,9 +55,9 @@ def env_validation(retention_days, index_name_prefixes, elasticsearch_host):
 
     return
 
-def es_connect(host):
+def es_connect_args(host):
     """
-    Returns created Elasticsearch instance.
+    Returns class with Elasticsearch arguments which will be used for api calls.
     """
     try:
         es = Elasticsearch(
@@ -72,7 +74,7 @@ def es_connect(host):
             client_cert='/home/data/cert'
         )
     except Exception as e:
-        log(log_err, "Could not connect to elasticsearch", extra={
+        log(log_err, "Could not pass args to elasticsearch class", extra={
             "exception": e
         })
         sys.exit(1)
@@ -189,7 +191,7 @@ def main():
         ))
 
         # Initiate new elasticsearch instance.
-        es = es_connect(elasticsearch_host)
+        es = es_connect_args(elasticsearch_host)
 
         # List of actionable indices to be deleted.
         indices_to_delete = get_actionable_indices(es, get_max_allowed_size(es, percentage_threshold), index_name_prefixes_list)
