@@ -1,4 +1,4 @@
-from curator import env_validation, log, es_connect
+from curator import env_validation, log
 import pytest
 
 class TestLog:
