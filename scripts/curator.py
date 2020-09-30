@@ -94,37 +94,35 @@ def get_actionable_indices(es, max_allowed_size, index_name_prefixes_list):
     """
     Returns a list of actionable indices based on percentage size and age.
     """
-    size_counter = 0
+
+    class data_structure:
+	def __init__(self, name, size, creation_date):
+		self.name = name
+		self.size = size
+        self.creation_date = creation_date
+
     # Prepare dictionary of indices with their size and creation_date values.
-    data = {}
+    size_counter = 0
+    data_array = []
+
     for index_name_prefixes in index_name_prefixes_list:
         for name in es.indices.get_alias(index=index_name_prefixes + "*").keys():
             size = int(get_first_item(es.indices.stats(index=name)['indices'][name]['total']['store']))
             creation_date = int(es.indices.get(index=name)[name]['settings']['index']['creation_date'])
-            data.update({name: {'size': size, 'creation_date': creation_date}})
-
-    def extract_creation_date_from_dict_item(item):
-        """
-        extract_creation_date_from_dict_item recieves an item in the format of:
-        ("index_name", { "size" : size, "creation_date" : date})
-
-        the return value is the value inside the "creation_date" field
-        """
-        index_of_value = 1
-        return item[index_of_value]["creation_date"]
+            data_array.append(data_structure(name, size, creation_date))
 
     # Output are one or more indices which are above the <percentage_value_input> threshold and are supposed to be deleted.
     indices_to_delete = []
-    for index_name, index_info in sorted(data.items(), key=extract_creation_date_from_dict_item):
-        extracted_size = index_info["size"]
+    for data_object in sorted(data_array.items(), key=key=lambda x: x.creation_date, reverse=True):
+        extracted_size = data_object.size
         if size_counter < max_allowed_size:
             size_counter += extracted_size
             log(log_info, "Removed from actionable list: '{indice}', summed disk usage is {usage} B and disk limit is {limit} B".format(
-                indice=index_name, usage=size_counter, limit=int(max_allowed_size)))
+                indice=data_object.name, usage=size_counter, limit=int(max_allowed_size)))
         else:
-            indices_to_delete.append(index_name)
+            indices_to_delete.append(data_object.name)
             log(log_info, "Remains in actionable list: '{indice}', summed disk usage is {usage} B and disk limit is {limit} B".format(
-                indice=index_name, usage=size_counter, limit=int(max_allowed_size)))
+                indice=data_object.name, usage=size_counter, limit=int(max_allowed_size)))
 
     return indices_to_delete
 
