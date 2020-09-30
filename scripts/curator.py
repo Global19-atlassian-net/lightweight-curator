@@ -96,9 +96,9 @@ def get_actionable_indices(es, max_allowed_size, index_name_prefixes_list):
     """
 
     class data_structure:
-	def __init__(self, name, size, creation_date):
-		self.name = name
-		self.size = size
+      def __init__(self, name, size, creation_date):
+        self.name = name
+        self.size = size
         self.creation_date = creation_date
 
     # Prepare dictionary of indices with their size and creation_date values.
@@ -113,7 +113,7 @@ def get_actionable_indices(es, max_allowed_size, index_name_prefixes_list):
 
     # Output are one or more indices which are above the <percentage_value_input> threshold and are supposed to be deleted.
     indices_to_delete = []
-    for data_object in sorted(data_array.items(), key=key=lambda x: x.creation_date, reverse=True):
+    for data_object in sorted(data_array, key=lambda x: x.creation_date, reverse=True):
         extracted_size = data_object.size
         if size_counter < max_allowed_size:
             size_counter += extracted_size
