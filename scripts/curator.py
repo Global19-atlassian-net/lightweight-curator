@@ -11,7 +11,6 @@ import sys
 # read environment variables
 elasticsearch_host = os.getenv("ELASTICSEARCH_HOST", "elasticsearch:9200")
 percentage_threshold = int(os.getenv("PERCENTAGE_THRESHOLD", "80"))
-# FIXME: confirm if app- prefix contains anything what customer creates
 index_name_prefixes = os.getenv("INDEX_NAME_PREFIXES", "infra-,app-,audit-")
 
 # types of logs
@@ -94,7 +93,6 @@ def get_actionable_indices(es, max_allowed_size, index_name_prefixes_list):
     """
     Returns a list of actionable indices based on percentage size and age.
     """
-
     class data_structure:
       def __init__(self, name, size, creation_date):
         self.name = name
@@ -111,18 +109,19 @@ def get_actionable_indices(es, max_allowed_size, index_name_prefixes_list):
             creation_date = int(es.indices.get(index=name)[name]['settings']['index']['creation_date'])
             data_array.append(data_structure(name, size, creation_date))
 
-    # Output are one or more indices which are above the <percentage_value_input> threshold and are supposed to be deleted.
+    # Output are one or more indices which are above the 80% threshold and are supposed to be deleted.
     indices_to_delete = []
     for data_object in sorted(data_array, key=lambda x: x.creation_date, reverse=True):
-        extracted_size = data_object.size
         if size_counter < max_allowed_size:
-            size_counter += extracted_size
+            # Indice did not breach the threshold limit. Log indice with message 'Removed from actionable list'. Increse counter.
             log(log_info, "Removed from actionable list: '{indice}', summed disk usage is {usage} B and disk limit is {limit} B".format(
                 indice=data_object.name, usage=size_counter, limit=int(max_allowed_size)))
+            size_counter += data_object.size
         else:
-            indices_to_delete.append(data_object.name)
+            # Indice has breached total threshold limit. Log indice with message 'Remains in actionable list' and append it to indices_to_delete array.
             log(log_info, "Remains in actionable list: '{indice}', summed disk usage is {usage} B and disk limit is {limit} B".format(
                 indice=data_object.name, usage=size_counter, limit=int(max_allowed_size)))
+            indices_to_delete.append(data_object.name)
 
     return indices_to_delete
 
