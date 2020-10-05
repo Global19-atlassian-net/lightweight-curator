@@ -2,7 +2,7 @@
 
 Simplistic cousin of [Elasticsearch curator](https://github.com/elastic/curator), created for one purpose only:
 
-Delete log indices created by fluentd which are above 80% of total threshold calculated from total disk size.
+Delete log indices created by fluentd which are above threshold of 80% calculated from total disk size.
 
 ## Prerequisite
 
