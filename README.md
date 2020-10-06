@@ -10,7 +10,7 @@ Delete log indices created by fluentd which are above threshold of 80% calculate
 
 ## Deployment
 
-Result of running following commands would be newly created *lightweight-curator* pod in *openshift-logging* namespace. From within this pod you can run lightweight_curator.py script.
+Result of running following commands would be newly created *lightweight-curator* pod in *openshift-logging* namespace. From within this pod you can run *lightweight_curator.py* script.
 
     $ oc apply src/cronjob.yaml -n openshift-logging
 
