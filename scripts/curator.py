@@ -117,7 +117,7 @@ def get_actionable_indices(es, max_allowed_size, index_name_prefixes_list):
     # Output are one or more indices which are above the 80% threshold and are supposed to be deleted.
     indices_to_delete = []
     for data_object in sorted(data_array, key=lambda x: x.creation_date, reverse=True):
-        if size_counter < max_allowed_size:
+        if size_counter < max_allowed_size and data_object.size + size_counter < max_allowed_size:
             log(log_info, "Do not add into actionable list: '{indice}', summed disk usage is {usage} B and disk limit is {limit} B".format(
                 indice=data_object.name, usage=size_counter, limit=int(max_allowed_size)))
             size_counter += data_object.size
