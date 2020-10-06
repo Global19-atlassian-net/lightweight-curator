@@ -30,6 +30,7 @@ def log(level, message="", extra=None):
         "level": level,
         "message": message
     }
+
     if extra is not None:
         msg["extra"] = extra
     print(json.dumps(msg))
@@ -54,6 +55,10 @@ def es_connect_args(host):
     """
     Returns class with Elasticsearch arguments which will be used for api calls.
     """
+    if host == "":
+        log(log_err, "Elasticsearch host is empty (ELASTICSEARCH_HOST='')")
+        sys.exit(1)
+
     es = Elasticsearch(
         [host],
         # enable SSL
@@ -113,13 +118,11 @@ def get_actionable_indices(es, max_allowed_size, index_name_prefixes_list):
     indices_to_delete = []
     for data_object in sorted(data_array, key=lambda x: x.creation_date, reverse=True):
         if size_counter < max_allowed_size:
-            # Indice did not breach the threshold limit. Log indice with message 'Removed from actionable list'. Increse counter.
-            log(log_info, "Removed from actionable list: '{indice}', summed disk usage is {usage} B and disk limit is {limit} B".format(
+            log(log_info, "Do not add into actionable list: '{indice}', summed disk usage is {usage} B and disk limit is {limit} B".format(
                 indice=data_object.name, usage=size_counter, limit=int(max_allowed_size)))
             size_counter += data_object.size
         else:
-            # Indice has breached total threshold limit. Log indice with message 'Remains in actionable list' and append it to indices_to_delete array.
-            log(log_info, "Remains in actionable list: '{indice}', summed disk usage is {usage} B and disk limit is {limit} B".format(
+            log(log_info, "Add into actionable list: '{indice}', summed disk usage is {usage} B and disk limit is {limit} B".format(
                 indice=data_object.name, usage=size_counter, limit=int(max_allowed_size)))
             indices_to_delete.append(data_object.name)
 
