@@ -12,6 +12,7 @@ import sys
 elasticsearch_host = os.getenv("ELASTICSEARCH_HOST", "elasticsearch:9200")
 percentage_threshold = int(os.getenv("PERCENTAGE_THRESHOLD", "80"))
 index_name_prefixes = os.getenv("INDEX_NAME_PREFIXES", "infra-,app-,audit-")
+dry_run = bool(os.getenv("DRY_RUN", "false"))
 
 # types of logs
 log_info = "info"
@@ -84,7 +85,7 @@ def get_max_allowed_size(es, percentage_threshold):
     for node in data.splitlines():
         i = i + int(node)
 
-    max_allowed_size = (percentage_threshold * i) / 100.0
+    max_allowed_size = int( (percentage_threshold * i) / 100.0 )
 
     return max_allowed_size
 
@@ -98,33 +99,40 @@ def get_actionable_indices(es, max_allowed_size, index_name_prefixes_list):
     """
     Returns a list of actionable indices based on percentage size and age.
     """
-    class data_structure:
+    class indices_struct:
       def __init__(self, name, size, creation_date):
         self.name = name
         self.size = size
         self.creation_date = creation_date
 
-    # Prepare dictionary of indices with their size and creation_date values.
-    size_counter = 0
-    data_array = []
-
+    """
+    Appends all indice into the list with their name, size and creation_date values.
+    """
+    indices = []
     for index_name_prefixes in index_name_prefixes_list:
         for name in es.indices.get_alias(index=index_name_prefixes + "*").keys():
             size = int(get_first_item(es.indices.stats(index=name)['indices'][name]['total']['store']))
             creation_date = int(es.indices.get(index=name)[name]['settings']['index']['creation_date'])
-            data_array.append(data_structure(name, size, creation_date))
+            indices.append(indices_struct(name, size, creation_date))
 
-    # Output are one or more indices which are above the 80% threshold and are supposed to be deleted.
+    """
+    Returns list of indices which are above threshold limit.
+    """
     indices_to_delete = []
-    for data_object in sorted(data_array, key=lambda x: x.creation_date, reverse=True):
-        if size_counter < max_allowed_size and data_object.size + size_counter < max_allowed_size:
-            log(log_info, "Do not add into actionable list: '{indice}', summed disk usage is {usage} B and disk limit is {limit} B".format(
-                indice=data_object.name, usage=size_counter, limit=int(max_allowed_size)))
-            size_counter += data_object.size
+    indices_size_counter = 0
+    for index in sorted(indices, key=lambda x: x.creation_date, reverse=True):
+        expected_size = index.size + sum_disk_usage
+        def index_smaller_then_max_allowed_size(indices_size_counter, expected_size, max_allowed_size):
+            if indices_size_counter < max_allowed_size and expected_size < max_allowed_size:
+                return True
+        if index_smaller_then_max_allowed_size(indices_size_counter, expected_size, max_allowed_size):
+            log(log_info, "Do not add into actionable list: '{index}', summed disk usage is {usage} B and disk limit is {limit} B".format(
+                index=index.name, usage=indices_size_counter, limit=max_allowed_size))
+            indices_size_counter += index.size
         else:
-            log(log_info, "Add into actionable list: '{indice}', summed disk usage is {usage} B and disk limit is {limit} B".format(
-                indice=data_object.name, usage=size_counter, limit=int(max_allowed_size)))
-            indices_to_delete.append(data_object.name)
+            log(log_info, "Add into actionable list: '{index}', summed disk usage is {usage} B and disk limit is {limit} B".format(
+                index=index.name, usage=indices_size_counter, limit=max_allowed_size))
+            indices_to_delete.append(index.name)
 
     return indices_to_delete
 
@@ -148,6 +156,7 @@ def main():
     global index_name_prefixes
     global elasticsearch_host
     global percentage_threshold
+    global dry_run
 
     # Initial validation of environment variables.
     env_validation(index_name_prefixes, elasticsearch_host)
@@ -158,7 +167,7 @@ def main():
     # Pass elasticsearch connect arguments.
     es = es_connect_args(elasticsearch_host)
 
-    log(log_info, "Removing indices which are above {percentage} threshold from host '{host}'".format(
+    log(log_info, "Searching for indices which are above {percentage}% threshold from host '{host}'".format(
         host=elasticsearch_host,
         percentage=percentage_threshold
     ))
@@ -167,8 +176,9 @@ def main():
     indices_to_delete = get_actionable_indices(es, get_max_allowed_size(es, percentage_threshold), index_name_prefixes_list)
 
     # For development purpose.
-    print(indices_to_delete)
-    sys.exit(1)
+    if dry_run:
+        print(indices_to_delete)
+        sys.exit(1)
 
     # Delete actionable indices.
     delete_indices(es, indices_to_delete)
