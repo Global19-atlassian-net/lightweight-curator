@@ -121,7 +121,7 @@ def get_actionable_indices(es, max_allowed_size, index_name_prefixes_list):
     indices_to_delete = []
     indices_size_counter = 0
     for index in sorted(indices, key=lambda x: x.creation_date, reverse=True):
-        expected_size = index.size + sum_disk_usage
+        expected_size = index.size + indices_size_counter
         def index_smaller_then_max_allowed_size(indices_size_counter, expected_size, max_allowed_size):
             if indices_size_counter < max_allowed_size and expected_size < max_allowed_size:
                 return True
