@@ -121,7 +121,7 @@ def get_actionable_indices(es, max_allowed_size, index_name_prefixes_list):
         self.creation_date = creation_date
 
     """
-    Appends all indice into the list with their name, size and creation_date.
+    Appends index into the list of indices with their name, size and creation_date.
     """
     indices = []
     for index_name_prefixes in index_name_prefixes_list:
