@@ -95,44 +95,49 @@ def get_first_item(a_dict={}):
     first_value = next(value_iterator)
     return first_value
 
+def index_smaller_then_max_allowed_size(index, limit, indices_size_counter, indices_to_delete):
+    """
+    Returns list of indices which are above threshold limit.
+    """
+    expected_size = index.size + indices_size_counter
+
+    if indices_size_counter < limit and expected_size < limit:
+        indices_size_counter += index.size
+        log(log_info, f"Do not add into actionable list: {index.name}, summed disk usage is {indices_size_counter} B and disk limit is {limit} B")
+    else:
+        log(log_info, f"Add into actionable list: {index.name}, summed disk usage is {indices_size_counter} B and disk limit is {limit} B")
+        indices_to_delete.append(index.name)
+
+    return indices_to_delete
+
 def get_actionable_indices(es, max_allowed_size, index_name_prefixes_list):
     """
-    Returns a list of actionable indices based on percentage size and age.
+    This function returns a list of indices which will be used in deletion process.
     """
-    class indices_struct:
+    class index_struct:
       def __init__(self, name, size, creation_date):
         self.name = name
         self.size = size
         self.creation_date = creation_date
 
     """
-    Appends all indice into the list with their name, size and creation_date values.
+    Appends all indice into the list with their name, size and creation_date.
     """
     indices = []
     for index_name_prefixes in index_name_prefixes_list:
         for name in es.indices.get_alias(index=index_name_prefixes + "*").keys():
             size = int(get_first_item(es.indices.stats(index=name)['indices'][name]['total']['store']))
             creation_date = int(es.indices.get(index=name)[name]['settings']['index']['creation_date'])
-            indices.append(indices_struct(name, size, creation_date))
+            indices.append(index_struct(name, size, creation_date))
 
     """
-    Returns list of indices which are above threshold limit.
+    Iterates through sorted indices (using reverse=True meaning oldest indices will be deleted first)
+    and calculates if index is smaller or bigger then max allowed size.
     """
     indices_to_delete = []
     indices_size_counter = 0
     for index in sorted(indices, key=lambda x: x.creation_date, reverse=True):
-        expected_size = index.size + indices_size_counter
-        def index_smaller_then_max_allowed_size(indices_size_counter, expected_size, max_allowed_size):
-            if indices_size_counter < max_allowed_size and expected_size < max_allowed_size:
-                return True
-        if index_smaller_then_max_allowed_size(indices_size_counter, expected_size, max_allowed_size):
-            log(log_info, "Do not add into actionable list: '{index}', summed disk usage is {usage} B and disk limit is {limit} B".format(
-                index=index.name, usage=indices_size_counter, limit=max_allowed_size))
-            indices_size_counter += index.size
-        else:
-            log(log_info, "Add into actionable list: '{index}', summed disk usage is {usage} B and disk limit is {limit} B".format(
-                index=index.name, usage=indices_size_counter, limit=max_allowed_size))
-            indices_to_delete.append(index.name)
+        index_smaller_then_max_allowed_size(index, max_allowed_size, indices_size_counter, indices_to_delete)
 
     return indices_to_delete
 
@@ -141,12 +146,12 @@ def delete_indices(es, indices_to_delete):
     Delete actionable indices pasted from get_actionable_indices() function.
     """
     # Delete indices.
-    for indice in indices_to_delete:
+    for index in indices_to_delete:
         try:
-            es.indices.delete(index=indice)
-            log(log_info, "Deleted indice '{s}'".format(s=indice))
+            es.indices.delete(index=index)
+            log(log_info, f"Deleted index '{index}'")
         except Exception as e:
-            log(log_err, "Error deleting indice '{s}'".format(s=indice), extra={
+            log(log_err, f"Error deleting index '{index}'", extra={
                 "exception": e
             })
 
@@ -167,10 +172,9 @@ def main():
     # Pass elasticsearch connect arguments.
     es = es_connect_args(elasticsearch_host)
 
-    log(log_info, "Searching for indices which are above {percentage}% threshold from host '{host}'".format(
-        host=elasticsearch_host,
-        percentage=percentage_threshold
-    ))
+    log(log_info, f"""Searching through indices sorted by the age to find and remove first oldest index which exceeds total storage threshold,
+    Value for total storage threshold is set to {percentage_threshold}%,
+    Host name is {elasticsearch_host}""")
 
     # Get list of actionable indices.
     indices_to_delete = get_actionable_indices(es, get_max_allowed_size(es, percentage_threshold), index_name_prefixes_list)
