@@ -95,7 +95,7 @@ def get_first_item(a_dict={}):
     first_value = next(value_iterator)
     return first_value
 
-def index_smaller_then_max_allowed_size(index, limit, indices_size_counter, indices_to_delete):
+def indices_smaller_then_max_allowed_size(index, limit, indices_size_counter, indices_to_delete):
     """
     Returns list of indices which are above threshold limit.
     """
@@ -110,7 +110,7 @@ def index_smaller_then_max_allowed_size(index, limit, indices_size_counter, indi
 
     return indices_to_delete
 
-def get_actionable_indices(es, max_allowed_size, index_name_prefixes_list):
+def get_actionable_indices(es, max_allowed_size, index_name_prefixes):
     """
     This function returns a list of indices which will be used in deletion process.
     """
@@ -124,8 +124,8 @@ def get_actionable_indices(es, max_allowed_size, index_name_prefixes_list):
     Appends index into the list of indices with their name, size and creation_date.
     """
     indices = []
-    for index_name_prefixes in index_name_prefixes_list:
-        for name in es.indices.get_alias(index=index_name_prefixes + "*").keys():
+    for index_name_prefix in index_name_prefixes:
+        for name in es.indices.get_alias(index=index_name_prefix + "*").keys():
             size = int(get_first_item(es.indices.stats(index=name)['indices'][name]['total']['store']))
             creation_date = int(es.indices.get(index=name)[name]['settings']['index']['creation_date'])
             indices.append(index_struct(name, size, creation_date))
@@ -137,7 +137,7 @@ def get_actionable_indices(es, max_allowed_size, index_name_prefixes_list):
     indices_to_delete = []
     indices_size_counter = 0
     for index in sorted(indices, key=lambda x: x.creation_date, reverse=True):
-        index_smaller_then_max_allowed_size(index, max_allowed_size, indices_size_counter, indices_to_delete)
+        indices_smaller_then_max_allowed_size(index, max_allowed_size, indices_size_counter, indices_to_delete)
 
     return indices_to_delete
 
@@ -167,7 +167,7 @@ def main():
     env_validation(index_name_prefixes, elasticsearch_host)
 
     # Index name prefixes from comma-separated string.
-    index_name_prefixes_list = index_name_prefixes.split(',')
+    index_name_prefixes = index_name_prefixes.split(',')
 
     # Pass elasticsearch connect arguments.
     es = es_connect_args(elasticsearch_host)
@@ -177,7 +177,7 @@ def main():
     Host name is {elasticsearch_host}""")
 
     # Get list of actionable indices.
-    indices_to_delete = get_actionable_indices(es, get_max_allowed_size(es, percentage_threshold), index_name_prefixes_list)
+    indices_to_delete = get_actionable_indices(es, get_max_allowed_size(es, percentage_threshold), index_name_prefixes)
 
     # For development purpose.
     if dry_run:
