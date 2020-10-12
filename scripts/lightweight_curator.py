@@ -121,7 +121,7 @@ def indices_smaller_then_max_allowed_size(index, limit, indices_size_counter, in
 
     if indices_size_counter < limit and expected_size < limit:
         indices_size_counter += index.size
-        logger.info(f"Do not add into actionable list: {index.name}, summed disk usage is {indices_size_counter} B and disk limit is {limit} B")
+        logger.warning(f"Do not add into actionable list: {index.name}, summed disk usage is {indices_size_counter} B and disk limit is {limit} B")
     else:
         logger.warning(f"Add into actionable list: {index.name}, summed disk usage is {indices_size_counter} B and disk limit is {limit} B")
         indices_to_delete.append(index.name)
@@ -167,7 +167,7 @@ def delete_indices(es, indices_to_delete):
     for index in indices_to_delete:
         try:
             es.indices.delete(index=index)
-            logger.info(f"Deleted index '{index}'")
+            logger.warning(f"Deleted index '{index}'")
         except Exception as e:
             logger.exception(f"Error deleting index '{index}'", extra={
                 "exception": e
@@ -197,7 +197,7 @@ def main():
     # Pass elasticsearch connect arguments.
     es = es_connect_args(elasticsearch_host)
 
-    logger.info(f"""Searching through indices sorted by the age to find and remove first oldest index which exceeds total storage threshold,
+    logger.warning(f"""Searching through indices sorted by the age to find and remove first oldest index which exceeds total storage threshold,
     Value for total storage threshold is set to {percentage_threshold}%,
     Host name is {elasticsearch_host}""")
 
