@@ -120,7 +120,7 @@ def indices_smaller_then_max_allowed_size(index, limit, indices_size_counter, in
         logger.warning(f"Add into actionable list: {index.name}, summed disk usage is {indices_size_counter} B and disk limit is {limit} B")
         indices_to_delete.append(index.name)
 
-    return indices_to_delete
+    return indices_to_delete, indices_size_counter
 
 def get_actionable_indices(es, max_allowed_size, index_name_prefixes):
     """
@@ -149,7 +149,7 @@ def get_actionable_indices(es, max_allowed_size, index_name_prefixes):
     indices_to_delete = []
     indices_size_counter = 0
     for index in sorted(indices, key=lambda x: x.creation_date, reverse=True):
-        indices_smaller_then_max_allowed_size(index, max_allowed_size, indices_size_counter, indices_to_delete)
+        indices_to_delete, indices_size_counter = indices_smaller_then_max_allowed_size(index, max_allowed_size, indices_size_counter, indices_to_delete)
 
     return indices_to_delete
 
