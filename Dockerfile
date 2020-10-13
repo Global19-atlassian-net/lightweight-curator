@@ -22,6 +22,6 @@ RUN apk --no-cache add $BUILD_DEPS $RUN_DEPS && \
 
 USER nobody
 
-COPY ./scripts/ /home/
+COPY ./scripts/ ./src/lightweight_curator.log /home/
 
 ENTRYPOINT ["tail", "-f", "/dev/null"]
