@@ -10,23 +10,23 @@ percentage_threshold = int(os.getenv("PERCENTAGE_THRESHOLD", "80"))
 index_name_prefixes = os.getenv("INDEX_NAME_PREFIXES", "infra-,app-,audit-")
 
 def argument_parser():
-    '''
+    """
     Add debug, verbose and dry_run command-line options.
-    '''
+    """
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        '-d', '--debug',
+        "-d", "--debug",
         help="Print debugging information in addition to normal processing.",
         action="store_const", dest="loglevel", const=logging.DEBUG,
     )
     parser.add_argument(
-        '-v', '--verbose',
+        "-v", "--verbose",
         help="Shows details about the result of running lightweight_curator.py",
         action="store_const", dest="loglevel", const=logging.INFO,
         default=logging.WARNING,
     )
     parser.add_argument(
-        '-n', '--dry_run',
+        "-n", "--dry_run",
         help="Print the list of indices which would be passed onto deletion process, but do not execute.",
         action="store_const", dest="dry", const=True,
     )
@@ -36,17 +36,17 @@ def argument_parser():
     return args
 
 def output_log_config(args):
-    '''
+    """
     Configure output logs with provided or default loglevel.
-    '''
-    file_handler = logging.FileHandler(filename='lightweight_curator.log')
+    """
+    file_handler = logging.FileHandler(filename="lightweight_curator.log")
     stdout_handler = logging.StreamHandler(sys.stdout)
     handlers = [file_handler, stdout_handler]
 
     logging.basicConfig(
-        format='%(asctime)s %(levelname)-8s [%(filename)s:%(module)s:%(funcName)s:%(lineno)d] %(message)s',
+        format="%(asctime)s %(levelname)-8s [%(filename)s:%(module)s:%(funcName)s:%(lineno)d] %(message)s",
         level=args.loglevel,
-        datefmt='%Y-%m-%d %H:%M:%S',
+        datefmt="%Y-%m-%d %H:%M:%S",
         handlers=handlers
     )
 
@@ -55,11 +55,11 @@ def env_validation(index_name_prefixes, elasticsearch_host):
     Initial validation of environment variables.
     """
     if index_name_prefixes == "":
-        logger.error("Index name prefix is empty (INDEX_NAME_PREFIXES='')")
+        logger.error("Index name prefix is empty (INDEX_NAME_PREFIXES="")")
         sys.exit(1)
 
     if elasticsearch_host == "":
-        logger.error("Elasticsearch host is empty (ELASTICSEARCH_HOST='')")
+        logger.error("Elasticsearch host is empty (ELASTICSEARCH_HOST="")")
         sys.exit(1)
 
     return
@@ -69,7 +69,7 @@ def es_connect_args(host):
     Returns class with Elasticsearch arguments which will be used for api calls.
     """
     if host == "":
-        logger.error("Elasticsearch host is empty (ELASTICSEARCH_HOST='')")
+        logger.error("Elasticsearch host is empty (ELASTICSEARCH_HOST="")")
         sys.exit(1)
 
     es = Elasticsearch(
@@ -79,11 +79,11 @@ def es_connect_args(host):
         # verify SSL certificates to authenticare
         verify_certs=True,
         # path to ca
-        ca_certs='/home/data/ca',
+        ca_certs="/home/data/ca",
         # path to key
-        client_key='/home/data/key',
+        client_key="/home/data/key",
         # path to cert
-        client_cert='/home/data/cert'
+        client_cert="/home/data/cert"
     )
 
     return es
@@ -93,7 +93,7 @@ def get_max_allowed_size(es, percentage_threshold):
     Returns a integer which is calculated as maximal allowed size. We think of <percentage_value_input> as 100% of our total available storage limit.
     """
     i = 0
-    data = es.cluster.client.cat.allocation(h='disk.total', bytes='b')
+    data = es.cluster.client.cat.allocation(h="disk.total", bytes="b")
     for node in data.splitlines():
         i = i + int(node)
 
@@ -138,8 +138,8 @@ def get_actionable_indices(es, max_allowed_size, index_name_prefixes):
     indices = []
     for index_name_prefix in index_name_prefixes:
         for name in es.indices.get_alias(index=index_name_prefix + "*").keys():
-            size = int(get_first_item(es.indices.stats(index=name)['indices'][name]['total']['store']))
-            creation_date = int(es.indices.get(index=name)[name]['settings']['index']['creation_date'])
+            size = int(get_first_item(es.indices.stats(index=name)["indices"][name]["total"]["store"]))
+            creation_date = int(es.indices.get(index=name)[name]["settings"]["index"]["creation_date"])
             indices.append(index_struct(name, size, creation_date))
 
     """
@@ -161,9 +161,9 @@ def delete_indices(es, indices_to_delete):
     for index in indices_to_delete:
         try:
             es.indices.delete(index=index)
-            logger.warning(f"Deleted index '{index}'")
+            logger.warning(f"Deleted index {index}")
         except Exception as e:
-            logger.exception(f"Error deleting index '{index}'", extra={
+            logger.exception(f"Error deleting index {index}", extra={
                 "exception": e
             })
 
@@ -179,14 +179,14 @@ def main():
     args = argument_parser()
 
     # Configure logging with provided or default loglevel.
-    logger = logging.getLogger('lightweightCurator')
+    logger = logging.getLogger("lightweightCurator")
     output_log_config(argument_parser())
 
     # Initial validation of environment variables.
     env_validation(index_name_prefixes, elasticsearch_host)
 
     # Index name prefixes from comma-separated string.
-    index_name_prefixes = index_name_prefixes.split(',')
+    index_name_prefixes = index_name_prefixes.split(",")
 
     # Pass elasticsearch connect arguments.
     es = es_connect_args(elasticsearch_host)
