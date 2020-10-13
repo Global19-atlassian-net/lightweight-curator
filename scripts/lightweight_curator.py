@@ -1,14 +1,8 @@
 # coding: utf8
 
-from datetime import date
-from datetime import timedelta
+from datetime import date, timedelta
 from elasticsearch import Elasticsearch
-import json
-import os
-import subprocess
-import sys
-import logging
-import argparse
+import json, os, subprocess, sys, logging, argparse
 
 # read environment variables
 elasticsearch_host = os.getenv("ELASTICSEARCH_HOST", "elasticsearch:9200")
@@ -17,7 +11,7 @@ index_name_prefixes = os.getenv("INDEX_NAME_PREFIXES", "infra-,app-,audit-")
 
 def argument_parser():
     '''
-    Add debug, verbose and dry_run command line options.
+    Add debug, verbose and dry_run command-line options.
     '''
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -181,7 +175,7 @@ def main():
     global percentage_threshold
     global logger
 
-    # Add debug, verbose and dry_run command line options.
+    # Add debug, verbose and dry_run command-line options.
     args = argument_parser()
 
     # Configure logging with provided or default loglevel.
