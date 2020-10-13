@@ -1,8 +1,8 @@
 # coding: utf8
 
 from datetime import date, timedelta
-from elasticsearch import Elasticsearch
-import json, os, subprocess, sys, logging, argparse
+from elasticsearch import Elasticsearch, exceptions
+import json, os, subprocess, sys, logging, argparse, time
 
 # read environment variables
 elasticsearch_host = os.getenv("ELASTICSEARCH_HOST", "elasticsearch:9200")
@@ -13,25 +13,29 @@ def argument_parser():
     """
     Add debug, verbose and dry_run command-line options.
     """
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "-d", "--debug",
-        help="Print debugging information in addition to normal processing.",
-        action="store_const", dest="loglevel", const=logging.DEBUG,
-    )
-    parser.add_argument(
-        "-v", "--verbose",
-        help="Shows details about the result of running lightweight_curator.py",
-        action="store_const", dest="loglevel", const=logging.INFO,
-        default=logging.WARNING,
-    )
-    parser.add_argument(
-        "-n", "--dry_run",
-        help="Print the list of indices which would be passed onto deletion process, but do not execute.",
-        action="store_const", dest="dry", const=True,
-    )
-
-    args = parser.parse_args()
+    try:
+        parser = argparse.ArgumentParser()
+        parser.add_argument(
+            "-d", "--debug",
+            help="Print debugging information in addition to normal processing.",
+            action="store_const", dest="loglevel", const=logging.DEBUG,
+        )
+        parser.add_argument(
+            "-v", "--verbose",
+            help="Shows details about the result of running lightweight_curator.py",
+            action="store_const", dest="loglevel", const=logging.INFO,
+            default=logging.WARNING,
+        )
+        parser.add_argument(
+            "-n", "--dry_run",
+            help="Print the list of indices which would be passed onto deletion process, but do not execute.",
+            action="store_const", dest="dry", const=True,
+        )
+        args = parser.parse_args()
+    except Exception as e:
+        logger.exception(f"Error with argparse module - parser for command-line options, arguments and sub-command.", extra={
+            "exception": e
+        })
 
     return args
 
@@ -39,16 +43,23 @@ def output_log_config(args):
     """
     Configure output logs with provided or default loglevel.
     """
-    file_handler = logging.FileHandler(filename="lightweight_curator.log")
-    stdout_handler = logging.StreamHandler(sys.stdout)
-    handlers = [file_handler, stdout_handler]
+    try:
+        file_handler = logging.FileHandler(filename="lightweight_curator.log")
+        stdout_handler = logging.StreamHandler(sys.stdout)
+        handlers = [file_handler, stdout_handler]
 
-    logging.basicConfig(
-        format="%(asctime)s %(levelname)-8s [%(filename)s:%(module)s:%(funcName)s:%(lineno)d] %(message)s",
-        level=args.loglevel,
-        datefmt="%Y-%m-%d %H:%M:%S",
-        handlers=handlers
-    )
+        logging.basicConfig(
+            format="%(asctime)s %(levelname)-8s [%(filename)s:%(module)s:%(funcName)s:%(lineno)d] %(message)s",
+            level=args.loglevel,
+            datefmt="%Y-%m-%d %H:%M:%S",
+            handlers=handlers
+        )
+    except Exception as e:
+        logger.exception(f"Error with logging module.", extra={
+            "exception": e
+        })
+
+    return
 
 def env_validation(index_name_prefixes, elasticsearch_host):
     """
@@ -64,27 +75,39 @@ def env_validation(index_name_prefixes, elasticsearch_host):
 
     return
 
-def es_connect_args(host):
+def es_connect(host):
     """
-    Returns class with Elasticsearch arguments which will be used for api calls.
+    Returns Elasticsearch instance which will be used for api calls.
     """
-    if host == "":
-        logger.error("Elasticsearch host is empty (ELASTICSEARCH_HOST="")")
-        sys.exit(1)
+    counter = 0
+    max_attempts = 2
+    while True:
+        try:
+            es = Elasticsearch(
+                [host],
+                # enable SSL
+                use_ssl=True,
+                # verify SSL certificates to authenticare
+                verify_certs=True,
+                # path to ca
+                ca_certs="/home/data/ca",
+                # path to key
+                client_key="/home/data/key",
+                # path to cert
+                client_cert="/home/data/cert"
+            )
+            es.cluster.health()
+            break
 
-    es = Elasticsearch(
-        [host],
-        # enable SSL
-        use_ssl=True,
-        # verify SSL certificates to authenticare
-        verify_certs=True,
-        # path to ca
-        ca_certs="/home/data/ca",
-        # path to key
-        client_key="/home/data/key",
-        # path to cert
-        client_cert="/home/data/cert"
-    )
+        except exceptions.ConnectionError:
+            logger.warning("Still trying to connect to Elasticsearch...")
+            counter += 1
+            if counter == max_attempts:
+                logger.critical("Error of connecting to Elasticsearch. Script will not proceeded. Please investigate if Elasticsearch is up and running.")
+                sys.exit(1)
+
+        logger.info("Sleeping 10 seconds...")
+        time.sleep(10)
 
     return es
 
@@ -157,7 +180,6 @@ def delete_indices(es, indices_to_delete):
     """
     Delete actionable indices pasted from get_actionable_indices() function.
     """
-    # Delete indices.
     for index in indices_to_delete:
         try:
             es.indices.delete(index=index)
@@ -188,8 +210,8 @@ def main():
     # Index name prefixes from comma-separated string.
     index_name_prefixes = index_name_prefixes.split(",")
 
-    # Pass elasticsearch connect arguments.
-    es = es_connect_args(elasticsearch_host)
+    # Connect to the Elasticsearch.
+    es = es_connect(elasticsearch_host)
 
     logger.warning(f"""Searching through indices sorted by the age to find and remove first oldest index which exceeds total storage threshold,
     Value for total storage threshold is set to {percentage_threshold}%,
