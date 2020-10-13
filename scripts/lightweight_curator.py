@@ -7,47 +7,65 @@ import json
 import os
 import subprocess
 import sys
+import logging
+import argparse
 
 # read environment variables
 elasticsearch_host = os.getenv("ELASTICSEARCH_HOST", "elasticsearch:9200")
 percentage_threshold = int(os.getenv("PERCENTAGE_THRESHOLD", "80"))
 index_name_prefixes = os.getenv("INDEX_NAME_PREFIXES", "infra-,app-,audit-")
-dry_run = bool(os.getenv("DRY_RUN", "false"))
 
-# types of logs
-log_info = "info"
-log_err = "error"
-log_types = [log_info, log_err]
+def argument_parser():
+    '''
+    Add debug, verbose and dry_run command line options.
+    '''
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        '-d', '--debug',
+        help="Print debugging information in addition to normal processing.",
+        action="store_const", dest="loglevel", const=logging.DEBUG,
+    )
+    parser.add_argument(
+        '-v', '--verbose',
+        help="Shows details about the result of running lightweight_curator.py",
+        action="store_const", dest="loglevel", const=logging.INFO,
+        default=logging.WARNING,
+    )
+    parser.add_argument(
+        '-n', '--dry_run',
+        help="Print the list of indices which would be passed onto deletion process, but do not execute.",
+        action="store_const", dest="dry", const=True,
+    )
 
-def log(level, message="", extra=None):
-    """
-    Prints a JSON-formatted log message
-    """
-    if level not in log_types:
-        print("Invalid level provided")
-        sys.exit(1)
+    args = parser.parse_args()
 
-    msg = {
-        "level": level,
-        "message": message
-    }
+    return args
 
-    if extra is not None:
-        msg["extra"] = extra
-    print(json.dumps(msg))
+def output_log_config(args):
+    '''
+    Configure output logs with provided or default loglevel.
+    '''
+    file_handler = logging.FileHandler(filename='lightweight_curator.log')
+    stdout_handler = logging.StreamHandler(sys.stdout)
+    handlers = [file_handler, stdout_handler]
 
-    return
+    logging.basicConfig(
+        format='%(asctime)s %(levelname)-8s [%(filename)s:%(module)s:%(funcName)s:%(lineno)d] %(message)s',
+        level=args.loglevel,
+        datefmt='%Y-%m-%d %H:%M:%S',
+        handlers=handlers
+    )
 
 def env_validation(index_name_prefixes, elasticsearch_host):
     """
     Initial validation of environment variables.
     """
     if index_name_prefixes == "":
-        log(log_err, "Index name prefix is empty (INDEX_NAME_PREFIXES='')")
+        logger.error("Index name prefix is empty (INDEX_NAME_PREFIXES='')")
         sys.exit(1)
 
     if elasticsearch_host == "":
-        log(log_err, "Elasticsearch host is empty (ELASTICSEARCH_HOST='')")
+        logger.error("Elasticsearch host is empty (ELASTICSEARCH_HOST='')")
         sys.exit(1)
 
     return
@@ -57,7 +75,7 @@ def es_connect_args(host):
     Returns class with Elasticsearch arguments which will be used for api calls.
     """
     if host == "":
-        log(log_err, "Elasticsearch host is empty (ELASTICSEARCH_HOST='')")
+        logger.error("Elasticsearch host is empty (ELASTICSEARCH_HOST='')")
         sys.exit(1)
 
     es = Elasticsearch(
@@ -103,9 +121,9 @@ def indices_smaller_then_max_allowed_size(index, limit, indices_size_counter, in
 
     if indices_size_counter < limit and expected_size < limit:
         indices_size_counter += index.size
-        log(log_info, f"Do not add into actionable list: {index.name}, summed disk usage is {indices_size_counter} B and disk limit is {limit} B")
+        logger.warning(f"Do not add into actionable list: {index.name}, summed disk usage is {indices_size_counter} B and disk limit is {limit} B")
     else:
-        log(log_info, f"Add into actionable list: {index.name}, summed disk usage is {indices_size_counter} B and disk limit is {limit} B")
+        logger.warning(f"Add into actionable list: {index.name}, summed disk usage is {indices_size_counter} B and disk limit is {limit} B")
         indices_to_delete.append(index.name)
 
     return indices_to_delete
@@ -149,9 +167,9 @@ def delete_indices(es, indices_to_delete):
     for index in indices_to_delete:
         try:
             es.indices.delete(index=index)
-            log(log_info, f"Deleted index '{index}'")
+            logger.warning(f"Deleted index '{index}'")
         except Exception as e:
-            log(log_err, f"Error deleting index '{index}'", extra={
+            logger.exception(f"Error deleting index '{index}'", extra={
                 "exception": e
             })
 
@@ -161,7 +179,14 @@ def main():
     global index_name_prefixes
     global elasticsearch_host
     global percentage_threshold
-    global dry_run
+    global logger
+
+    # Add debug, verbose and dry_run command line options.
+    args = argument_parser()
+
+    # Configure logging with provided or default loglevel.
+    logger = logging.getLogger('lightweightCurator')
+    output_log_config(argument_parser())
 
     # Initial validation of environment variables.
     env_validation(index_name_prefixes, elasticsearch_host)
@@ -172,7 +197,7 @@ def main():
     # Pass elasticsearch connect arguments.
     es = es_connect_args(elasticsearch_host)
 
-    log(log_info, f"""Searching through indices sorted by the age to find and remove first oldest index which exceeds total storage threshold,
+    logger.warning(f"""Searching through indices sorted by the age to find and remove first oldest index which exceeds total storage threshold,
     Value for total storage threshold is set to {percentage_threshold}%,
     Host name is {elasticsearch_host}""")
 
@@ -180,7 +205,7 @@ def main():
     indices_to_delete = get_actionable_indices(es, get_max_allowed_size(es, percentage_threshold), index_name_prefixes)
 
     # For development purpose.
-    if dry_run:
+    if args.dry:
         print(indices_to_delete)
         sys.exit(1)
 
