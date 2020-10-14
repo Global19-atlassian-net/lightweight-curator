@@ -18,7 +18,7 @@ Dry_run prints the list of indices which would be passed onto deletion process, 
     -v --verbose
     -n --dry_run
 
-### Manually running script for development purposed
+### Manually running script for development purposes
 
 Result of running following commands would be newly created *lightweight-curator* pod in *openshift-logging* namespace. From within this pod you can run *lightweight_curator.py* script.
 
