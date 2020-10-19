@@ -5,10 +5,9 @@ metadata:
   namespace: openshift-logging
   labels:
     component: lightweight-curator
-    logging-infra: lightweight-curator
     provider: openshift
 spec:
-  schedule: '30 3 * * *'
+  schedule: '15 * * * *'
   concurrencyPolicy: Allow
   suspend: true
   successfulJobsHistoryLimit: 3
@@ -21,11 +20,10 @@ spec:
           namespace: openshift-logging
           labels:
             component: lightweight-curator
-            logging-infra: lightweight-curator
             provider: openshift
         spec:
           nodeSelector:
-            kubernetes.io/os: linux
+            node-role.kubernetes.io/worker: ""
           restartPolicy: OnFailure
           schedulerName: default-scheduler
           containers:
@@ -37,13 +35,12 @@ spec:
                   value: 'elasticsearch.openshift-logging.svc.cluster.local:9200'
                 - name: PERCENTAGE_THRESHOLD
                   value: '80'
-                - name: RETENTION_DAYS
-                  value: '2'
                 - name: INDEX_NAME_PREFIX
                   value: 'infra- app- audit-'
               securityContext: {}
               resources:
                 limits:
+                  cpu: 200m
                   memory: 2Gi
                 requests:
                   cpu: 200m
