@@ -31,7 +31,7 @@ def argument_parser(args):
             help="Print the list of indices which would be passed onto deletion process, but do not execute.",
             action="store_const", dest="dry", const=True,
         )
-    except Exception as e:
+    except ImportError as e:
         logger.exception(f"Error with argparse module - parser for command-line options, arguments and sub-command.", extra={
             "exception": e
         })
@@ -53,7 +53,7 @@ def output_log_config(loglevel):
             datefmt="%Y-%m-%d %H:%M:%S",
             handlers=handlers
         )
-    except Exception as e:
+    except ImportError as e:
         logger.exception(f"Error with logging module.", extra={
             "exception": e
         })
@@ -183,7 +183,7 @@ def delete_indices(es, indices_to_delete):
         try:
             es.indices.delete(index=index)
             logger.warning(f"Deleted index {index}")
-        except Exception as e:
+        except ValueError as e:
             logger.exception(f"Error deleting index {index}", extra={
                 "exception": e
             })
