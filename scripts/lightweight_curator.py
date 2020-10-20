@@ -9,7 +9,7 @@ elasticsearch_host = os.getenv("ELASTICSEARCH_HOST", "elasticsearch:9200")
 percentage_threshold = int(os.getenv("PERCENTAGE_THRESHOLD", "80"))
 index_name_prefixes = os.getenv("INDEX_NAME_PREFIXES", "infra-,app-,audit-")
 
-def argument_parser():
+def argument_parser(args):
     """
     Add debug, verbose and dry_run command-line options.
     """
@@ -31,15 +31,14 @@ def argument_parser():
             help="Print the list of indices which would be passed onto deletion process, but do not execute.",
             action="store_const", dest="dry", const=True,
         )
-        args = parser.parse_args()
     except Exception as e:
         logger.exception(f"Error with argparse module - parser for command-line options, arguments and sub-command.", extra={
             "exception": e
         })
 
-    return args
+    return parser.parse_args(args)
 
-def output_log_config(args):
+def output_log_config(loglevel):
     """
     Configure output logs with provided or default loglevel.
     """
@@ -50,7 +49,7 @@ def output_log_config(args):
 
         logging.basicConfig(
             format="%(asctime)s %(levelname)-8s [%(filename)s:%(module)s:%(funcName)s:%(lineno)d] %(message)s",
-            level=args.loglevel,
+            level=loglevel,
             datefmt="%Y-%m-%d %H:%M:%S",
             handlers=handlers
         )
@@ -198,11 +197,12 @@ def main():
     global logger
 
     # Add debug, verbose and dry_run command-line options.
-    args = argument_parser()
+    # sys.argv[1:] removes the script name.
+    parser = argument_parser(sys.argv[1:])
 
     # Configure logging with provided or default loglevel.
     logger = logging.getLogger("lightweightCurator")
-    output_log_config(argument_parser())
+    output_log_config(parser.loglevel)
 
     # Initial validation of environment variables.
     env_validation(index_name_prefixes, elasticsearch_host)
@@ -221,7 +221,7 @@ def main():
     indices_to_delete = get_actionable_indices(es, get_max_allowed_size(es, percentage_threshold), index_name_prefixes)
 
     # For development purpose.
-    if args.dry:
+    if parser.dry:
         print(indices_to_delete)
         sys.exit(1)
 
