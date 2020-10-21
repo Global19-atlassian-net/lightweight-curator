@@ -13,28 +13,23 @@ def argument_parser(args):
     """
     Add debug, verbose and dry_run command-line options.
     """
-    try:
-        parser = argparse.ArgumentParser()
-        parser.add_argument(
-            "-d", "--debug",
-            help="Print debugging information in addition to normal processing.",
-            action="store_const", dest="loglevel", const=logging.DEBUG,
-        )
-        parser.add_argument(
-            "-v", "--verbose",
-            help="Shows details about the result of running lightweight_curator.py",
-            action="store_const", dest="loglevel", const=logging.INFO,
-            default=logging.WARNING,
-        )
-        parser.add_argument(
-            "-n", "--dry_run",
-            help="Print the list of indices which would be passed onto deletion process, but do not execute.",
-            action="store_const", dest="dry", const=True,
-        )
-    except ImportError as e:
-        logger.exception(f"Error with argparse module - parser for command-line options, arguments and sub-command.", extra={
-            "exception": e
-        })
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "-d", "--debug",
+        help="Print debugging information in addition to normal processing.",
+        action="store_const", dest="loglevel", const=logging.DEBUG,
+    )
+    parser.add_argument(
+        "-v", "--verbose",
+        help="Shows details about the result of running lightweight_curator.py",
+        action="store_const", dest="loglevel", const=logging.INFO,
+        default=logging.WARNING,
+    )
+    parser.add_argument(
+        "-n", "--dry_run",
+        help="Print the list of indices which would be passed onto deletion process, but do not execute.",
+        action="store_const", dest="dry", const=True,
+    )
 
     return parser.parse_args(args)
 
@@ -42,23 +37,16 @@ def output_log_config(loglevel):
     """
     Configure output logs with provided or default loglevel.
     """
-    try:
-        file_handler = logging.FileHandler(filename="lightweight_curator.log")
-        stdout_handler = logging.StreamHandler(sys.stdout)
-        handlers = [file_handler, stdout_handler]
+    file_handler = logging.FileHandler(filename="lightweight_curator.log")
+    stdout_handler = logging.StreamHandler(sys.stdout)
+    handlers = [file_handler, stdout_handler]
 
-        logging.basicConfig(
-            format="%(asctime)s %(levelname)-8s [%(filename)s:%(module)s:%(funcName)s:%(lineno)d] %(message)s",
-            level=loglevel,
-            datefmt="%Y-%m-%d %H:%M:%S",
-            handlers=handlers
-        )
-    except ImportError as e:
-        logger.exception(f"Error with logging module.", extra={
-            "exception": e
-        })
-
-    return
+    logging.basicConfig(
+        format="%(asctime)s %(levelname)-8s [%(filename)s:%(module)s:%(funcName)s:%(lineno)d] %(message)s",
+        level=loglevel,
+        datefmt="%Y-%m-%d %H:%M:%S",
+        handlers=handlers
+    )
 
 def env_validation(index_name_prefixes, elasticsearch_host):
     """
