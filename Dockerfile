@@ -12,7 +12,7 @@ USER root
 RUN apk --no-cache add $BUILD_DEPS $RUN_DEPS && \
     python3 -m ensurepip && \
     rm -r /usr/lib/python*/ensurepip && \
-    pip3 install --upgrade pip setuptools elasticsearch pytest && \
+    pip3 install --upgrade pip setuptools elasticsearch elasticmock_extra && \
     if [ ! -e /usr/bin/pip ]; then ln -s pip3 /usr/bin/pip ; fi && \
     if [[ ! -e /usr/bin/python ]]; then ln -sf /usr/bin/python3 /usr/bin/python; fi && \
     apk del $BUILD_DEPS && \
