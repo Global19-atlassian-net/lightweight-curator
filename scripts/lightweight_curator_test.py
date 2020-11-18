@@ -3,7 +3,7 @@
 import elasticsearch
 import unittest
 from datetime import datetime
-from elasticmock_extra import elasticmock, behaviour
+from elasticmock_additional_apis import elasticmock, behaviour
 
 INDEX_NAME = 'test_index'
 DOC_TYPE = 'doc-Type'
