@@ -168,12 +168,17 @@ def delete_indices(es, indices_to_delete):
     for index in indices_to_delete:
         try:
             es.indices.delete(index=index)
-            logger.warning(f"Deleted index {index}")
+            try:
+                logger.warning(f"Deleted index {index}")
+            except:
+                pass
         except ValueError as e:
-            logger.exception(f"Error deleting index {index}", extra={
-                "exception": e
-            })
-
+            try:
+                logger.exception(f"Error deleting index {index}", extra={
+                    "exception": e
+                })
+            except:
+                pass
     return
 
 def main():
