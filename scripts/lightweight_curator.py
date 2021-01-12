@@ -37,15 +37,13 @@ def output_log_config(loglevel):
     """
     Configure output logs with provided or default loglevel.
     """
-    file_handler = logging.FileHandler(filename="lightweight_curator.log")
     stdout_handler = logging.StreamHandler(sys.stdout)
-    handlers = [file_handler, stdout_handler]
 
     logging.basicConfig(
         format="%(asctime)s %(levelname)-8s [%(filename)s:%(module)s:%(funcName)s:%(lineno)d] %(message)s",
         level=loglevel,
         datefmt="%Y-%m-%d %H:%M:%S",
-        handlers=handlers
+        handlers=stdout_handler
     )
 
 def env_validation(index_name_prefixes, elasticsearch_host):
