@@ -29,7 +29,7 @@ spec:
           containers:
             - name: lightweight-curator
               image: >-
-                quay.io/tgabriel/lightweight-curator:v1.0
+                quay.io/tgabriel/lightweight-curator:v4.0
               env:
                 - name: ELASTICSEARCH_HOST
                   value: 'elasticsearch.openshift-logging.svc.cluster.local:9200'
